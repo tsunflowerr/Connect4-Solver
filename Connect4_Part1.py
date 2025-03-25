@@ -20,53 +20,52 @@ def printGameBoard():
         print(i, ' |', end = '')
         for j in range(cols):
             if(gameBoard[i][j] == "🔵"):
-                print("", gameBoard[i][j], end = ' |')
+                print("", gameBoard[i][j], end = '|')
             elif(gameBoard[i][j] == "🔴"):
-                print("", gameBoard[i][j], end = ' |')
+                print("", gameBoard[i][j], end = '|')
             else:
                 print(" ", gameBoard[i][j], end = ' |')
     print("\n   +---+---+---+---+---+---+---+")
 
-def modifyTurn(spacePicked, turn) :
+def modifyArray(spacePicked, turn) :
     gameBoard[spacePicked[0]][spacePicked[1]] = turn
     
 def checkForWinner(chip):
     def check_line(x1, y1, x2, y2, x3, y3, x4, y4):
-        return (gameBoard[x1][y1] == chip and 
-                gameBoard[x2][y2] == chip and 
-                gameBoard[x3][y3] == chip and 
-                gameBoard[x4][y4] == chip)
+        return (gameBoard[y1][x1] == chip and 
+                gameBoard[y2][x2] == chip and 
+                gameBoard[y3][x3] == chip and 
+                gameBoard[y4][x4] == chip)
 
-    # Kiểm tra hàng ngang
+    # Check horizontal lines
     for y in range(rows):
         for x in range(cols - 3):
             if check_line(x, y, x+1, y, x+2, y, x+3, y):
                 print("\n Game over!", chip, "wins!")
                 return True
 
-    # Kiểm tra hàng dọc
+    # Check vertical lines
     for x in range(cols):
         for y in range(rows - 3):
             if check_line(x, y, x, y+1, x, y+2, x, y+3):
                 print("\n Game over!", chip, "wins!")
                 return True
 
-    # Kiểm tra đường chéo từ phải trên xuống trái dưới
-    for x in range(rows - 3):
-        for y in range(3, cols):
-            if check_line(x, y, x+1, y-1, x+2, y-2, x+3, y-3):
-                print("\n Game over!", chip, "wins!")
-                return True
-
-    # Kiểm tra đường chéo từ trái trên xuống phải dưới
-    for x in range(rows - 3):
-        for y in range(cols - 3):
+    # Check diagonal (top-left to bottom-right)
+    for x in range(cols - 3):
+        for y in range(rows - 3):
             if check_line(x, y, x+1, y+1, x+2, y+2, x+3, y+3):
                 print("\n Game over!", chip, "wins!")
                 return True
 
-    return False
+    # Check diagonal (bottom-left to top-right)
+    for x in range(cols - 3):
+        for y in range(3, rows):
+            if check_line(x, y, x+1, y-1, x+2, y-2, x+3, y-3):
+                print("\n Game over!", chip, "wins!")
+                return True
 
+    return False
 
 def coordinateParser(inputString):
     coordinate = [None] * 2
@@ -95,7 +94,51 @@ def isSpaceAvailabel(intendedCoordinate):
         return False
     else:
         return True
-turnCounter = 0
-
-            
     
+def gravityChecker(intendedCoordinate):
+    #calculate space below 
+    spaceBelow = [None] * 2
+    spaceBelow[0] = intendedCoordinate[0] + 1
+    spaceBelow[1] = intendedCoordinate[1]
+    # Is the coordinate at ground level?
+    if(spaceBelow[0] > 5):
+        return True
+    #Check if there is a chip below
+    if (isSpaceAvailabel(spaceBelow) == False):
+        return True
+    return False
+leaveLoop = False 
+turnCounter = 0
+while leaveLoop == False:
+    if(turnCounter % 2 == 0):
+        printGameBoard()
+        while True:
+            spacePicked = input(" \n Player 1, pick a space: ")
+            coordinate = coordinateParser(spacePicked)
+            try:
+                ## Check if the space is available
+                if(isSpaceAvailabel(coordinate) == True and gravityChecker(coordinate) == True):
+                    modifyArray(coordinate, "🔵")
+                    break
+                else:
+                    print("Not a valid coordinate")
+            except:
+                print("error occured")
+        winner = checkForWinner("🔵")
+        turnCounter += 1
+    else:
+        while True:
+            spacePicked = random.choice(possibleLetters) + str(random.randint(0, 5))
+            coordinate = coordinateParser(spacePicked)
+            try:
+                ## Check if the space is available
+                if(isSpaceAvailabel(coordinate) == True and gravityChecker(coordinate) == True):
+                    modifyArray(coordinate, "🔴")
+                    break
+            except:
+                print("error occured")
+        winner = checkForWinner("🔴")
+        turnCounter += 1
+    if(winner == True):
+        printGameBoard()
+        break
