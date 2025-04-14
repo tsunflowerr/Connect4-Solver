@@ -5,43 +5,22 @@ import numpy as np
 from pydantic import BaseModel
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torchmetrics
 import pytorch_lightning as pl
 from einops import rearrange
-from torch.optim import Adam
 
 from c4a0_rust import N_COLS, N_ROWS  # type: ignore
 
 
 class ModelConfig(BaseModel):
-    """Configuration for OptimizedConnectFourNet."""
-
-    n_residual_blocks: int = 6
-    base_filters: int = 64
-    policy_hidden_size: int = 128
-    value_hidden_size: int = 128
-    # conv_filter_size: int
+    """Configuration for ConnectFourNet."""
+    n_residual_blocks: int
+    conv_filter_size: int
     n_policy_layers: int
     n_value_layers: int
     lr_schedule: Dict[int, float]
-    l2_reg: float = 1e-4
-
-
-class ResidualBlock(nn.Module):
-    """Residual Block với 2 lớp conv và skip connection tối ưu"""
-    def __init__(self, in_channels: int):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 3, padding=1, bias=False),
-            nn.BatchNorm2d(in_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels, in_channels, 3, padding=1, bias=False),
-            nn.BatchNorm2d(in_channels)
-        )
-        
-    def forward(self, x):
-        return F.relu(x + self.conv(x), inplace=True)
+    l2_reg: float
+    label_smoothing: float = 0.1
 
 
 class ConnectFourNet(pl.LightningModule):
@@ -49,99 +28,189 @@ class ConnectFourNet(pl.LightningModule):
 
     def __init__(self, config: ModelConfig):
         super().__init__()
-        self.lr_schedule = config.lr_schedule
-        self.l2_reg = config.l2_reg
-
-        # Input processing
-        self.input_conv = nn.Sequential(
-            nn.Conv2d(2, config.base_filters, 3, padding=1),
-            nn.BatchNorm2d(config.base_filters),
-            nn.ReLU(inplace=True)
+        self.save_hyperparameters(config.model_dump())
+        
+        # Convolutional backbone
+        self.conv = nn.Sequential(
+            nn.Conv2d(2, config.conv_filter_size, 3, padding=1),
+            nn.BatchNorm2d(config.conv_filter_size),
+            nn.Mish(),
+            *[ResidualBlock(config.conv_filter_size) 
+              for _ in range(config.n_residual_blocks)]
         )
-
-        # Residual blocks
-        self.res_blocks = nn.Sequential(*[
-            ResidualBlock(config.base_filters)
-            for _ in range(config.n_residual_blocks)
-        ])
-
+        
+        # Global feature aggregation
+        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # Policy head components
+        self.policy_se = SqueezeExcitation(config.conv_filter_size)
         self.policy_head = nn.Sequential(
-            nn.Conv2d(config.base_filters, 2, 1),
-            nn.Flatten(),
-            nn.Linear(2 * N_ROWS * N_COLS, config.policy_hidden_size),
-            nn.ReLU(inplace=True),
-            nn.Linear(config.policy_hidden_size, N_COLS),
+            *[ResidualFC(config.conv_filter_size) 
+              for _ in range(config.n_policy_layers-1)],
+            PolicyTemperatureScaling(),
+            nn.Linear(config.conv_filter_size, N_COLS),
             nn.LogSoftmax(dim=1)
         )
-
-        self.value_head = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(config.base_filters, config.value_hidden_size),
-            nn.ReLU(inplace=True),
-            nn.Linear(config.value_hidden_size, 2),
+        
+        # Value head components
+        self.value_head = DuelingHead(config.conv_filter_size)
+        self.value_processor = nn.Sequential(
+            nn.Linear(config.conv_filter_size*2, 128),
+            nn.Mish(),
+            nn.Linear(128, 2),
             nn.Tanh()
         )
 
         # Metrics
         self.policy_kl_div = torchmetrics.KLDivergence(log_prob=True)
-        self.q_penalty_mse = torchmetrics.MeanSquaredError()
-        self.q_no_penalty_mse = torchmetrics.MeanSquaredError()
-
-        self.save_hyperparameters(config.model_dump())
+        self.value_mse = torchmetrics.MeanSquaredError()
 
     def forward(self, x) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        x = self.input_conv(x)
-        x = self.res_blocks(x)
+        # Feature extraction
+        x = self.conv(x)
+        pooled = self.global_pool(x).squeeze(-1).squeeze(-1)
         
-        policy_logprobs = self.policy_head(x)
-        q_values = self.value_head(x)
+        # Policy calculation
+        policy_features = self.policy_se(pooled)
+        policy_logprobs = self.policy_head(policy_features)
+        
+        # Value calculation
+        value_features = self.value_head(pooled)
+        q_values = self.value_processor(value_features)
         
         return policy_logprobs, q_values[:, 0], q_values[:, 1]
 
     def forward_numpy(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         self.eval()
-        pos = torch.from_numpy(x).to(self.device)
         with torch.no_grad():
+            pos = torch.from_numpy(x).to(self.device)
             policy, q_penalty, q_no_penalty = self.forward(pos)
-        policy = policy.contiguous().cpu().numpy()
-        q_penalty = q_penalty.contiguous().cpu().numpy()
-        q_no_penalty = q_no_penalty.contiguous().cpu().numpy()
-        return policy, q_penalty, q_no_penalty
+        return (
+            policy.cpu().numpy(),
+            q_penalty.cpu().numpy(),
+            q_no_penalty.cpu().numpy(),
+        )
 
     def configure_optimizers(self):
         gen_n: int = self.trainer.gen_n  # type: ignore
-        assert gen_n is not None, "please pass gen_n to trainer"
-        schedule = sorted(list(self.lr_schedule.items()))
-        _, lr = schedule.pop(0)
-        for gen_threshold, gen_rate in schedule:
-            if gen_n < gen_threshold:
-                break
-            lr = gen_rate
-
-        logger.info("using lr {} for gen_n {}", lr, gen_n)
-        optimizer = Adam(self.parameters(), lr=lr, weight_decay=self.l2_reg)
-        return optimizer
+        schedule = sorted(self.hparams.lr_schedule.items())
+        _, lr = next(iter(schedule))
+        for threshold, rate in schedule:
+            if gen_n >= threshold:
+                lr = rate
+        return torch.optim.AdamW(
+            self.parameters(), 
+            lr=lr,
+            weight_decay=self.hparams.l2_reg
+        )
 
     def training_step(self, batch, batch_idx):
-        return self.step(batch, log_prefix="train")
+        return self._shared_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
-        return self.step(batch, log_prefix="val")
+        return self._shared_step(batch, "val")
 
-    def step(self, batch, log_prefix):
+    def _shared_step(self, batch, prefix):
         pos, policy_target, q_penalty_target, q_no_penalty_target = batch
-        policy_logprob, q_penalty_pred, q_no_penalty_pred = self.forward(pos)
-        policy_logprob_targets = torch.log(policy_target + self.EPS)
+        
+        # Data augmentation
+        if prefix == "train":
+            flip_mask = torch.rand(pos.size(0)) < 0.5
+            pos[flip_mask] = torch.flip(pos[flip_mask], dims=[3])
+            policy_target[flip_mask] = torch.flip(policy_target[flip_mask], dims=[1])
+        
+        # Forward pass
+        policy_logprob, q_penalty_pred, q_no_penalty_pred = self(pos)
+        
+        # Label smoothing
+        policy_target = (1 - self.hparams.label_smoothing) * policy_target + \
+                      self.hparams.label_smoothing / N_COLS
+        
+        # Loss calculation
+        policy_loss = self.policy_kl_div(
+            torch.log(policy_target + self.EPS), 
+            policy_logprob
+        ) * 2.0
+        
+        value_loss = self.value_mse(
+            torch.cat([q_penalty_pred, q_no_penalty_pred], dim=0),
+            torch.cat([q_penalty_target, q_no_penalty_target], dim=0)
+        ) * 0.5
+        
+        total_loss = policy_loss + value_loss
+        
+        # Logging
+        self.log_dict({
+            f"{prefix}_loss": total_loss,
+            f"{prefix}_policy_loss": policy_loss,
+            f"{prefix}_value_loss": value_loss
+        }, prog_bar=True)
+        
+        return total_loss
 
-        policy_loss = self.policy_kl_div(policy_logprob_targets, policy_logprob)
-        q_penalty_loss = self.q_penalty_mse(q_penalty_pred, q_penalty_target)
-        q_no_penalty_loss = self.q_no_penalty_mse(
-            q_no_penalty_pred, q_no_penalty_target
+
+class ResidualBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(channels, channels, 3, padding=1),
+            nn.BatchNorm2d(channels),
+            nn.Mish(),
+            nn.Conv2d(channels, channels, 3, padding=1),
+            nn.BatchNorm2d(channels)
         )
-        loss = policy_loss + q_penalty_loss + q_no_penalty_loss
+        self.mish = nn.Mish()
 
-        self.log(f"{log_prefix}_loss", loss, prog_bar=True)
-        self.log(f"{log_prefix}_policy_kl_div", policy_loss)
-        self.log(f"{log_prefix}_value_mse", q_penalty_loss)
-        return loss
+    def forward(self, x):
+        return self.mish(x + self.block(x))
+
+
+class SqueezeExcitation(nn.Module):
+    def __init__(self, channels, reduction=16):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels//reduction),
+            nn.Mish(),
+            nn.Linear(channels//reduction, channels),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return x * self.fc(x)
+
+
+class ResidualFC(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.BatchNorm1d(dim),
+            nn.Mish(),
+            nn.Dropout(0.1),
+            nn.Linear(dim, dim),
+            nn.BatchNorm1d(dim)
+        )
+
+    def forward(self, x):
+        return x + self.block(x)
+
+
+class PolicyTemperatureScaling(nn.Module):
+    def __init__(self, init_temp=0.7):
+        super().__init__()
+        self.temp = nn.Parameter(torch.tensor([init_temp]))
+
+    def forward(self, logits):
+        return logits / self.temp.clamp(min=0.1, max=2.0)
+
+
+class DuelingHead(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.value_stream = nn.Linear(dim, dim)
+        self.advantage_stream = nn.Linear(dim, dim)
+
+    def forward(self, x):
+        v = self.value_stream(x)
+        a = self.advantage_stream(x)
+        return torch.cat([v + (a - a.mean()), v - (a - a.mean())], dim=1)
