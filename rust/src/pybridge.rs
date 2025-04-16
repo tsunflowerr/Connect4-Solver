@@ -254,6 +254,81 @@ pub fn run_tui<'py>(
     })
 }
 
+#[pyfunction]
+pub fn predict_move<'py>(
+    py: Python<'py>,
+    board: &Bound<'py, PyAny>,
+    current_player: usize,
+    n_mcts_iterations: usize,
+    c_exploration: f32,
+    c_ply_penalty: f32,
+    py_eval_pos_cb: &Bound<'py, PyAny>,
+) -> PyResult<usize> {
+    // 1. Chuyển board Python sang Vec<Vec<i32>>
+    let board_vec: Vec<Vec<i32>> = board.extract()?;
+
+    // 2. Chuyển board sang Vec<Move> (chuỗi nước đi)
+    let mut moves = Vec::new();
+    let n_rows = crate::c4r::Pos::N_ROWS;
+    let n_cols = crate::c4r::Pos::N_COLS;
+    let mut heights = vec![0; n_cols];
+    for row in 0..n_rows {
+        for col in 0..n_cols {
+            if board_vec[row][col] != 0 {
+                heights[col] += 1;
+            }
+        }
+    }
+    let total_pieces: usize = heights.iter().sum();
+    let mut ply = 0;
+    while ply < total_pieces {
+        for col in 0..n_cols {
+            if heights[col] > 0 {
+                moves.push(col);
+                heights[col] -= 1;
+                ply += 1;
+                break;
+            }
+        }
+    }
+    let pos = crate::c4r::Pos::from_moves(&moves);
+
+    // 3. Tạo EvalPosT từ callback Python (giống run_tui)
+    let eval_pos = crate::pybridge::PyEvalPos {
+        py_eval_pos_cb: py_eval_pos_cb.to_object(py),
+    };
+
+    // 4. Khởi tạo InteractivePlay từ pos
+    let play = crate::interactive_play::InteractivePlay::new_from_pos(
+        pos,
+        eval_pos,
+        n_mcts_iterations,
+        c_exploration,
+        c_ply_penalty,
+    );
+
+    // 5. Đợi cho đến khi MCTS chạy xong (block)
+    let snapshot = loop {
+        let snap = play.snapshot();
+        if snap.n_mcts_iterations >= n_mcts_iterations {
+            break snap;
+        }
+        std::thread::yield_now();
+    };
+
+    // 6. Chọn nước đi tốt nhất (greedy) từ policy
+    let legal_moves = snapshot.pos.legal_moves();
+    let mut best_move = 0;
+    let mut best_score = f32::NEG_INFINITY;
+    for (i, &score) in snapshot.policy.iter().enumerate() {
+        if legal_moves[i] && score > best_score {
+            best_move = i;
+            best_score = score;
+        }
+    }
+    Ok(best_move)
+}
+
 /// Convert a Rust error into a Python exception.
 fn pyify_err<T>(e: T) -> PyErr
 where
