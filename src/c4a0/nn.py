@@ -9,8 +9,6 @@ import torchmetrics
 import pytorch_lightning as pl
 from einops import rearrange
 
-from c4a0_rust import N_COLS, N_ROWS  # type: ignore
-
 
 class ModelConfig(BaseModel):
     """Configuration for ConnectFourNet."""
