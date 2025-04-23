@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: connect4-api
+    env: docker
+    plan: free
+    autoDeploy: true
