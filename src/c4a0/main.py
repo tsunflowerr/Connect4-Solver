@@ -198,7 +198,9 @@ class MCTS:
             policy_logits = policy_logits[0]
             self.on_received_policy(policy_logits, q_penalty, q_no_penalty)
 
-    def get_root_policy(self):train
+    def get_root_policy(self):
+        """Trả về chính sách của nút gốc."""
+        return self.root.policy()
     @staticmethod
     def softmax(logits):
         """Chuyển logits thành xác suất bằng softmax."""
