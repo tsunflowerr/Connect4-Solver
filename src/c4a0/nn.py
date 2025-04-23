@@ -9,8 +9,6 @@ import torchmetrics
 import pytorch_lightning as pl
 from einops import rearrange
 
-from c4a0_rust import N_COLS, N_ROWS  # type: ignore
-
 
 class ModelConfig(BaseModel):
     """Configuration for ConnectFourNet."""
@@ -48,7 +46,7 @@ class ConnectFourNet(pl.LightningModule):
             *[ResidualFC(config.conv_filter_size) 
               for _ in range(config.n_policy_layers-1)],
             PolicyTemperatureScaling(),
-            nn.Linear(config.conv_filter_size, N_COLS),
+            nn.Linear(config.conv_filter_size, 7),
             nn.LogSoftmax(dim=1)
         )
         
@@ -124,7 +122,7 @@ class ConnectFourNet(pl.LightningModule):
         
         # Label smoothing
         policy_target = (1 - self.hparams.label_smoothing) * policy_target + \
-                      self.hparams.label_smoothing / N_COLS
+                      self.hparams.label_smoothing / 7
         
         # Loss calculation
         policy_loss = self.policy_kl_div(

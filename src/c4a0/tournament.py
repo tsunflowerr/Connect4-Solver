@@ -15,8 +15,6 @@ from tabulate import tabulate
 import torch
 
 from c4a0.nn import ConnectFourNet
-import c4a0_rust  # type: ignore
-from c4a0_rust import N_COLS  # type: ignore
 
 PlayerName = NewType("PlayerName", str)
 
@@ -59,7 +57,7 @@ class RandomPlayer(Player):
 
     def forward_numpy(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         batch_size = x.shape[0]
-        policy_logits = torch.rand(batch_size, N_COLS).numpy()
+        policy_logits = torch.rand(batch_size, 7).numpy()
         q_value = (torch.rand(batch_size) * 2 - 1).numpy()  # [-1, 1]
         return policy_logits, q_value, q_value
 
@@ -72,7 +70,7 @@ class UniformPlayer(Player):
 
     def forward_numpy(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         batch_size = x.shape[0]
-        policy_logits = torch.ones(batch_size, N_COLS).numpy()
+        policy_logits = torch.ones(batch_size, 7).numpy()
         q_value = torch.zeros(batch_size).numpy()
         return policy_logits, q_value, q_value
 
@@ -108,32 +106,3 @@ class TournamentResult:
         return [model_id for model_id, _ in self.get_scores()]
 
 
-def play_tournament(
-    players: List[Player],
-    games_per_match: int,
-    batch_size: int,
-    mcts_iterations: int,
-    exploration_constant: float,
-) -> TournamentResult:
-    """Players a round-robin tournament, returning the total score of each player."""
-    assert games_per_match % 2 == 0, "games_per_match must be even"
-
-    gen_id_to_player = {player.model_id: player for player in players}
-    tournament = TournamentResult(
-        model_ids=[player.model_id for player in players],
-    )
-    player_ids = [player.model_id for player in players]
-    pairings = list(itertools.permutations(player_ids, 2)) * int(games_per_match / 2)
-    reqs = [c4a0_rust.GameMetadata(id, p0, p1) for id, (p0, p1) in enumerate(pairings)]
-
-    logger.info(f"Beginning tournament with {len(players)} players")
-    tournament.games = c4a0_rust.play_games(
-        reqs,
-        batch_size,
-        mcts_iterations,
-        exploration_constant,
-        lambda player_id, pos: gen_id_to_player[player_id].forward_numpy(pos),
-    )
-    logger.info(f"Finished tournament with {len(tournament.games.results)} games")  # type: ignore
-
-    return tournament
