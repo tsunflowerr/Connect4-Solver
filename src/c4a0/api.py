@@ -54,5 +54,7 @@ async def make_move(game_state: GameState) -> AIResponse:
         raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8000))  # ✅ DÙNG PORT TỪ ENV
+    uvicorn.run(app, host="0.0.0.0", port=port)
