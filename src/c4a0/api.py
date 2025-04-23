@@ -8,12 +8,13 @@ from c4a0.pos import Pos
 
 from c4a0.training import TrainingGen
 
+app = FastAPI()
+
 @app.get("/api/test")
 async def health_check():
     return {"status": "ok", "message": "Server is running"}
 
 
-app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
