@@ -37,13 +37,11 @@ build/
 
 # Data and Media files
 *.csv
-*.json
 *.xlsx
 *.db
 *.sqlite
 *.sqlite3
 *.log
-*.pkl
 *.h5
 *.onnx
 *.pb
@@ -51,7 +49,6 @@ build/
 
 # Project specific
 solver/
-training/
 lightning_logs/
 images/
 /target/
