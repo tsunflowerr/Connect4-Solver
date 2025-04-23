@@ -75,34 +75,3 @@ class UniformPlayer(Player):
         return policy_logits, q_value, q_value
 
 
-@dataclass
-class TournamentResult:
-    """Represents the results from a tournamnet."""
-
-    model_ids: List[ModelID]
-    date: datetime = field(default_factory=datetime.now)
-    games: Optional[c4a0_rust.PlayGamesResult] = None
-
-    def get_scores(self) -> List[Tuple[ModelID, float]]:
-        scores: Dict[ModelID, float] = defaultdict(lambda: 0.0)
-        for result in self.games.results:  # type: ignore
-            player0_score = result.player0_score()
-            scores[result.metadata.player0_id] += player0_score
-            scores[result.metadata.player1_id] += 1 - player0_score
-
-        ret = list(scores.items())
-        ret.sort(key=lambda x: x[1], reverse=True)
-        return ret
-
-    def scores_table(self, get_name: Callable[[int], str]) -> str:
-        return tabulate(
-            [(get_name(id), score) for id, score in self.get_scores()],
-            headers=["Player", "Score"],
-            tablefmt="github",
-        )
-
-    def get_top_models(self) -> List[ModelID]:
-        """Returns the top models from the tournament in descending order of performance."""
-        return [model_id for model_id, _ in self.get_scores()]
-
-
