@@ -18,8 +18,7 @@ from torch.utils.data import DataLoader
 from c4a0.nn import ConnectFourNet, ModelConfig
 from c4a0.utils import BestModelCheckpoint
 
-import c4a0_rust  # type: ignore
-from c4a0_rust import PlayGamesResult, BUF_N_CHANNELS, N_COLS, N_ROWS, Sample  # type: ignore
+
 
 
 class TrainingGen(BaseModel):
@@ -44,27 +43,6 @@ class TrainingGen(BaseModel):
 
     def gen_folder(self, base_dir: str) -> str:
         return TrainingGen._gen_folder(self.created_at, base_dir)
-
-    def save_all(
-        self,
-        base_dir: str,
-        games: Optional[PlayGamesResult],
-        model: ConnectFourNet,
-    ):
-        gen_dir = self.gen_folder(base_dir)
-        os.makedirs(gen_dir, exist_ok=True)
-
-        metadata_path = os.path.join(gen_dir, "metadata.json")
-        with open(metadata_path, "w") as f:
-            f.write(self.model_dump_json(indent=2))
-
-        play_result_path = os.path.join(gen_dir, "games.pkl")
-        with open(play_result_path, "wb") as f:
-            pickle.dump(games, f)
-
-        model_path = os.path.join(gen_dir, "model.pkl")
-        with open(model_path, "wb") as f:
-            pickle.dump(model, f)
 
     def save_metadata(self, base_dir: str):
         gen_dir = self.gen_folder(base_dir)
@@ -133,10 +111,7 @@ class TrainingGen(BaseModel):
             gen.save_all(base_dir, None, model)
             return gen
 
-    def get_games(self, base_dir: str) -> Optional[PlayGamesResult]:
-        gen_folder = self.gen_folder(base_dir)
-        with open(os.path.join(gen_folder, "games.pkl"), "rb") as f:
-            return pickle.load(f)
+   
 
     def get_model(self, base_dir: str) -> ConnectFourNet:
         """Gets the model for this generation."""
@@ -304,32 +279,7 @@ SampleTensor = NewType(
 
 
 class SampleDataModule(pl.LightningDataModule):
-    def __init__(
-        self,
-        training_data: List[Sample],
-        validation_data: List[Sample],
-        batch_size: int,
-    ):
-        super().__init__()
-        self.batch_size = batch_size
-        training_data += [s.flip_h() for s in training_data]
-        validation_data += [s.flip_h() for s in validation_data]
-        self.training_data = [self.sample_to_tensor(s) for s in training_data]
-        self.validation_data = [self.sample_to_tensor(s) for s in validation_data]
-
-    @staticmethod
-    def sample_to_tensor(sample: Sample) -> "SampleTensor":
-        pos, policy, q_penalty, q_no_penalty = sample.to_numpy()
-        pos_t = torch.from_numpy(pos)
-        policy_t = torch.from_numpy(policy)
-        q_penalty_t = torch.from_numpy(q_penalty)
-        q_no_penalty_t = torch.from_numpy(q_no_penalty)
-        assert pos_t.shape == (BUF_N_CHANNELS, N_ROWS, N_COLS)
-        assert policy_t.shape == (N_COLS,)
-        assert q_penalty_t.shape == ()
-        assert q_no_penalty.shape == ()
-        return SampleTensor((pos_t, policy_t, q_penalty_t, q_no_penalty_t))
-
+    
     def train_dataloader(self):
         return DataLoader(
             self.training_data,  # type: ignore

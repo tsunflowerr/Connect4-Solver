@@ -21,7 +21,6 @@ from c4a0.pos import Pos
 # from c4a0.pos import CellValue
 # from c4a0.pos import N_COLS, N_ROWS
 from c4a0.nn import ModelConfig
-from c4a0.sweep import perform_hparam_sweep
 from c4a0.tournament import ModelID, RandomPlayer, UniformPlayer
 from c4a0.training import SolverConfig, TrainingGen, parse_lr_schedule, training_loop
 from c4a0.utils import get_torch_device
@@ -269,10 +268,6 @@ def debug2(model: str = "best", base_dir: str = "training"):
 #         c_ply_penalty,
 #     )
 
-@app.command()
-def nn_sweep(base_dir: str = "training"):
-    """Performs neural network hyperparameter sweep"""
-    perform_hparam_sweep(base_dir)
 
 @app.command()
 def mcts_sweep(
@@ -283,7 +278,7 @@ def mcts_sweep(
     n_residual_blocks: int = 3,      # Updated from 1
     conv_filter_size: int = 64,      # Updated from 32
     n_policy_layers: int = 3,        # Updated from 4
-    n_value_layers: int = 3,         # Updated from 2
+    n_value_layers: int = 3,         # Updated from 2ModuleNotFoundError: No module named 'c4a0'
     lr_schedule: List[float] = [0, 1e-3, 20, 5e-4],
     l2_reg: float = 1e-4,            # Updated from 4e-4
     base_training_dir: str = "training-sweeps",
