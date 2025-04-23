@@ -14,6 +14,9 @@ from loguru import logger
 from tabulate import tabulate
 import torch
 
+from c4a0.nn import ConnectFourNet
+import c4a0_rust  # type: ignore
+from c4a0_rust import N_COLS  # type: ignore
 
 PlayerName = NewType("PlayerName", str)
 

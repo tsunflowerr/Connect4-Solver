@@ -18,7 +18,8 @@ from torch.utils.data import DataLoader
 from c4a0.nn import ConnectFourNet, ModelConfig
 from c4a0.utils import BestModelCheckpoint
 
-
+import c4a0_rust  # type: ignore
+from c4a0_rust import PlayGamesResult, BUF_N_CHANNELS, N_COLS, N_ROWS, Sample  # type: ignore
 
 
 class TrainingGen(BaseModel):
