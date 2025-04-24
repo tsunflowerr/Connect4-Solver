@@ -27,7 +27,8 @@ class ConnectFourNet(pl.LightningModule):
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.save_hyperparameters(config.model_dump())
-        
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.to(self.device)
         # Convolutional backbone
         self.conv = nn.Sequential(
             nn.Conv2d(2, config.conv_filter_size, 3, padding=1),

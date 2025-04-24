@@ -7,7 +7,8 @@ from datetime import datetime
 import os
 import pickle
 from typing import Dict, List, NewType, Optional, Tuple
-
+import io
+import torchmetrics
 from loguru import logger
 from pydantic import BaseModel
 import pytorch_lightning as pl
@@ -17,9 +18,6 @@ from torch.utils.data import DataLoader
 
 from c4a0.nn import ConnectFourNet, ModelConfig
 from c4a0.utils import BestModelCheckpoint
-
-
-
 
 class TrainingGen(BaseModel):
     """
@@ -93,7 +91,7 @@ class TrainingGen(BaseModel):
         self_play_batch_size: int,
         training_batch_size: int,
         model_config: ModelConfig,
-    ):
+    ) -> "TrainingGen":
         try:
             return TrainingGen.load_latest(base_dir)
         except FileNotFoundError:
@@ -111,14 +109,44 @@ class TrainingGen(BaseModel):
             gen.save_all(base_dir, None, model)
             return gen
 
-   
-
     def get_model(self, base_dir: str) -> ConnectFourNet:
-        """Gets the model for this generation."""
+        """Gets the model for this generation, loading GPU-pickled model onto CPU."""
+        import io, pickle, torch, torchmetrics, os
+
         gen_folder = self.gen_folder(base_dir)
-        with open(os.path.join(gen_folder, "model.pkl"), "rb") as f:
-            model = pickle.load(f)
-            return model
+        model_path = os.path.join(gen_folder, "model.pkl")
+
+        # Monkey-patch torch.storage to force CPU deserialization
+        _orig_load = torch.storage._load_from_bytes
+        def _cpu_load_from_bytes(b: bytes):
+            return torch.load(
+                io.BytesIO(b),
+                map_location=torch.device('cpu'),
+                weights_only=False
+            )
+        torch.storage._load_from_bytes = _cpu_load_from_bytes
+
+        # Unpickle model without CUDA errors
+        with open(model_path, 'rb') as f:
+            model: ConnectFourNet = pickle.load(f)
+
+        # Restore original loader
+        torch.storage._load_from_bytes = _orig_load
+
+        # Replace torchmetrics on GPU with fresh CPU instances
+        model.policy_kl_div = torchmetrics.KLDivergence(log_prob=True).to('cpu')
+        model.value_mse    = torchmetrics.MeanSquaredError().to('cpu')
+
+        # Move model to available device (CPU/GPU)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = model.to(device)
+
+        model.eval()
+        return model
+
+# ... rest of your code ...
+
+
 
 
 class SolverConfig(BaseModel):
@@ -147,6 +175,12 @@ def train_single_gen(
     """
     gen_n = parent.gen_n + 1
     logger.info(f"Beginning new generation {gen_n} from {parent.gen_n}")
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info(f"Using device: {device}")
+
+    model = parent.get_model(base_dir)
+    model.to(device)
 
     # TODO: log experiment metadata in MLFlow
 
@@ -225,6 +259,11 @@ def training_loop(
     max_gens: Optional[int] = None,
     solver_config: Optional[SolverConfig] = None,
 ) -> TrainingGen:
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info("Beginning training loop")
+    logger.info(f"device: {device}")
+
     """Main training loop. Sequentially trains generation after generation."""
     logger.info("Beginning training loop")
     logger.info("device: {}", device)
