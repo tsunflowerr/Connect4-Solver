@@ -77,7 +77,7 @@ async def make_move(game_state: GameState) -> AIResponse:
 
         # Run MCTS and measure time
         start_time = time.time()
-        mcts.run(500)
+        mcts.run(10)
         policy = mcts.get_root_policy()
         move = np.argmax(policy)
         elapsed_time = time.time() - start_time
