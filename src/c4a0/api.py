@@ -22,7 +22,7 @@ else:
 
 try:
     gen = TrainingGen.load_latest(base_dir)
-    print(f"✅ Loaded generation: {gen.generation_id if hasattr(gen, 'generation_id') else 'Unknown'}")
+    print(f"✅ Loaded generation: {gen}")
     nn = gen.get_model(base_dir)
     print(f"✅ Model loaded successfully: {type(nn)}")
 except Exception as e:
