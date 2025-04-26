@@ -36,8 +36,10 @@ class AIResponse(BaseModel):
 
 @app.post("/api/connect4-move")
 async def make_move(game_state: GameState) -> AIResponse:
-    gen = TrainingGen.load_latest("training")
-    nn = gen.get_model("training")
+    base_dir = os.path.join(os.path.dirname(__file__), "training")
+    gen = TrainingGen.load_latest(base_dir)
+    nn = gen.get_model(base_dir)
+
 
     try:
         initial_pos = Pos.from_2d_board(game_state.board)
