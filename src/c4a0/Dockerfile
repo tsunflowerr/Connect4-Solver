@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Cài toolchain + các công cụ cần thiết
+# Install build tools
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -10,28 +10,30 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Cài rustup (công cụ cài Rust)
+# Install Rust
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
-# Cài pip, maturin và dependencies
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
+RUN pip install maturin  # Add this line
 
-# Copy toàn bộ source
+# Copy source code
 COPY . .
 
-# Build Rust extension (giả sử rust nằm trong thư mục rust/)
+# Build Rust extension
 WORKDIR /app/rust
 RUN maturin develop --release
 
-# Quay về thư mục chính để run app
+# Move back to main working directory
 WORKDIR /app
 
-# Port cho Render
+# Expose Render port
 EXPOSE $PORT
 
-CMD uvicorn src.api:app --host 0.0.0.0 --port $PORT
+# Start the server
+CMD uvicorn src.c4a0.api:app --host 0.0.0.0 --port $PORT

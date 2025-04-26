@@ -25,12 +25,13 @@ headers = {
     "Accept": "application/json"
 }
 
+# Gửi request
 try:
+    response = requests.post(url, headers=headers, json=payload, timeout=100)
     print("Status code:", response.status_code)
-    response_json = response.json()
-    print("Response:", response_json)
-except json.JSONDecodeError:
-    print("❌ Server không trả về JSON hợp lệ!")
-    print("Response text:", response.text)
+    print("Response:", response.json())
+except requests.exceptions.Timeout:
+    print("⏳ Request timeout!")
 except requests.exceptions.RequestException as e:
     print("❌ Error occurred:", e)
+
