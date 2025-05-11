@@ -26,14 +26,30 @@ This project implements the AlphaZero algorithm to learn and play Connect4 throu
 ## Installation
 
 1. Clone this repository
-2. Install Python dependencies:
+2. Install clang
    ```
-   pip install -e .
+   # Instructions for Ubuntu/Debian (other OSs may vary)
+   sudo apt install clang
    ```
-3. Build the Rust components:
+3. Install uv for python dep/env management
    ```
-   cd rust
-   cargo build --release
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+4. Install deps and create virtual env:
+   ```
+   uv sync
+   ```
+5. Compile rust code
+   ```
+   uv run maturin develop --release
+   ```
+6. (Optional) Download a connect four solver to objectively measure training progress:
+   ```
+   ugit clone https://github.com/PascalPons/connect4.git solver
+   cd solver
+   make
+    # Download opening book to speed up solutions
+   wget https://github.com/PascalPons/connect4/releases/download/book/7x6.book
    ```
 
 ## Usage
@@ -41,13 +57,19 @@ This project implements the AlphaZero algorithm to learn and play Connect4 throu
 ### Training a Model
 
 ```bash
-python -m c4a0.main train --base-dir training --n-self-play-games 1700 --n-mcts-iterations 1400
+   uv run src/c4a0/main.py train --max-gens=10
 ```
 
 ### Playing Against a Trained Model
 
 ```bash
-python -m c4a0.main play --base-dir training --model best
+ uv run src/c4a0/main.py play --model=best
+```
+
+### Test for api which can be used to compare different model versions and players in tourament web
+
+```bash
+uv run src/c4a0/main.py debug2api --model=best
 ```
 
 ### Hyperparameter Optimization
@@ -60,10 +82,10 @@ python -m c4a0.main nn_sweep --base-dir training
 python -m c4a0.main mcts_sweep --base-dir training-sweeps
 ```
 
-### Evaluating Model Strength
+### Evaluating Model Strength using connect4 solver
 
 ```bash
-python -m c4a0.main score --solver-path /path/to/solver --book-path /path/to/book
+   uv run python src/c4a0/main.py score solver/c4solver solver/7x6.book
 ```
 
 ## Project Structure
