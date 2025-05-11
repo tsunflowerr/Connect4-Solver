@@ -1,0 +1,15 @@
+.aider*
+
+.pytest_cache/
+__pycache__/
+.ruff_cache/
+
+lightning_logs/
+training/
+training-sweeps/
+solver/
+
+*.bak
+*.db
+*.log
+*.pkl
